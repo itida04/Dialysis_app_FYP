@@ -159,4 +159,49 @@ router.patch(
   }
 );
 
+/**
+ * POST /doctor/patients
+ * Auth: doctor
+ * body: { doctorId }
+ * → returns all patients assigned to that doctor
+ */
+router.post("/doctor/patients", authMiddleware(["doctor"]), async (req, res) => {
+  try {
+    const { doctorId } = req.body;
+
+    if (!doctorId) {
+      return res.status(400).json({ message: "doctorId is required in the request body" });
+    }
+
+    // Ensure the logged-in doctor is requesting their own list
+    if (req.user.id !== doctorId) {
+      return res.status(403).json({ message: "Unauthorized access" });
+    }
+
+    // Find all patients assigned to this doctor
+    const patients = await User.find(
+      { doctorId, role: "patient" },
+      "name email _id" // select only these fields
+    );
+
+    if (!patients.length) {
+      return res.json({
+        success: true,
+        message: "No patients found under this doctor",
+        patients: [],
+      });
+    }
+
+    res.json({
+      success: true,
+      count: patients.length,
+      patients,
+    });
+  } catch (err) {
+    console.error("Error fetching patients:", err);
+    res.status(500).json({ message: "Server error" });
+  }
+});
+
+
 export default router;
