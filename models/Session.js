@@ -35,39 +35,60 @@ const sessionSchema = new mongoose.Schema({
 
   // 🔹 For material sessions (what items were issued)
   materials: {
-    sessionsCount: {            // "For how many sessions"
+    sessionsCount: {
+      // "For how many sessions"
       type: Number,
       default: 0,
     },
-    dialysisMachine: {          // "portable" / "standard" / "none"
+    dialysisMachine: {
+      // "portable" / "standard" / "none"
       type: String,
       enum: ["portable", "standard", "none"],
       default: "none",
     },
-    dialyzer: {                 // Dialyzer taken or not
+    dialyzer: {
+      // Dialyzer taken or not
       type: Boolean,
       default: false,
     },
-    bloodTubingSets: {          // Blood tubing sets taken or not
+    bloodTubingSets: {
+      // Blood tubing sets taken or not
       type: Boolean,
       default: false,
     },
-    dialysisNeedles: {          // Dialysis needles taken or not
+    dialysisNeedles: {
+      // Dialysis needles taken or not
       type: Boolean,
       default: false,
     },
-    dialysateConcentrates: {    // Acid & bicarbonate solutions
+    dialysateConcentrates: {
+      // Acid & bicarbonate solutions
       type: Boolean,
       default: false,
     },
-    heparin: {                  // Heparin taken or not
+    heparin: {
+      // Heparin taken or not
       type: Boolean,
       default: false,
     },
-    salineSolution: {           // 0.9% NaCl
+    salineSolution: {
+      // 0.9% NaCl
       type: Boolean,
       default: false,
     },
+  },
+
+  // 🔹 NEW: link dialysis session → material session
+  materialSessionId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: "Session", // refers to a material-type session
+    default: null,  // only filled for type: "dialysis"
+  },
+
+  // 🔹 NEW: which day (1..N) under that material session
+  dayNumber: {
+    type: Number,
+    default: null,  // only filled for type: "dialysis"
   },
 
   // existing createdAt
@@ -81,10 +102,10 @@ const sessionSchema = new mongoose.Schema({
     type: Date,
   },
 
-  // ✅ NEW FIELD (patient acknowledgment timestamp)
+  // ✅ patient acknowledgment timestamp for material session
   acknowledgedAt: {
-    type: Date
-  }
+    type: Date,
+  },
 
   // if later you want verification, you can uncomment these:
   // verifiedAt: { type: Date },
