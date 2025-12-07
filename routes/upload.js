@@ -23,19 +23,62 @@ router.post(
   authMiddleware(["doctor"]),
   async (req, res) => {
     try {
-      const { patientId } = req.body;
       const doctorId = req.user.id;
+      const { patientId } = req.body;
 
-      const session = new Session({ patientId, doctorId, type: "material" });
+      if (!patientId) {
+        return res.status(400).json({ message: "patientId is required" });
+      }
+
+      // Read optional materials info from body (validate / default)
+      // expected body keys (all optional except patientId):
+      // sessionsCount, dialysisMachine, dialyzer, bloodTubingSets, dialysisNeedles,
+      // dialysateConcentrates, heparin, salineSolution
+
+      const {
+        sessionsCount = 0,
+        dialysisMachine = "none", // "portable" | "standard" | "none"
+        dialyzer = false,
+        bloodTubingSets = false,
+        dialysisNeedles = false,
+        dialysateConcentrates = false,
+        heparin = false,
+        salineSolution = false,
+        notes = ""
+      } = req.body;
+
+      // basic validation for dialysisMachine
+      const validMachines = ["portable", "standard", "none"];
+      const machine = validMachines.includes(dialysisMachine) ? dialysisMachine : "none";
+
+      const session = new Session({
+        patientId,
+        doctorId,
+        type: "material",
+        status: "active",
+        notes,
+        materials: {
+          sessionsCount: Number(sessionsCount) || 0,
+          dialysisMachine: machine,
+          dialyzer: Boolean(dialyzer),
+          bloodTubingSets: Boolean(bloodTubingSets),
+          dialysisNeedles: Boolean(dialysisNeedles),
+          dialysateConcentrates: Boolean(dialysateConcentrates),
+          heparin: Boolean(heparin),
+          salineSolution: Boolean(salineSolution)
+        }
+      });
+
       await session.save();
 
       res.json({ success: true, session });
     } catch (err) {
-      console.error(err);
-      res.status(500).json({ message: "Error creating material session" });
+      console.error("Error creating material session:", err);
+      res.status(500).json({ message: "Error creating material session", error: err.message });
     }
   }
 );
+
 
 // ------------------- START DIALYSIS SESSION -------------------
 router.post(
@@ -133,24 +176,76 @@ router.get("/session/:id/images", authMiddleware(), async (req, res) => {
 
 // ------------------- FINISH DIALYSIS SESSION -------------------
 router.patch(
-  "/finish-dialysis-session/:sessionId",
+  "/finish-dialysis-session",
   authMiddleware(["patient"]),
   async (req, res) => {
     try {
-      const { sessionId } = req.params;
-      const session = await Session.findOne({ _id: sessionId, patientId: req.user.id });
+      const {
+        sessionId,
 
-      if (!session)
-        return res.status(404).json({ message: "Session not found or unauthorized" });
+        // Voluntary questions
+        feelingOk,
+        fever,
+        comment,
 
+        // Dialysis parameters
+        fillVolume,
+        drainVolume,
+        fillTime,
+        drainTime,
+        bloodPressure,
+        weightPre,
+        weightPost,
+        numberOfExchanges,
+        durationMinutes
+      } = req.body;
+
+      if (!sessionId) {
+        return res.status(400).json({ message: "sessionId is required" });
+      }
+
+      const session = await Session.findOne({
+        _id: sessionId,
+        patientId: req.user.id
+      });
+
+      if (!session) {
+        return res
+          .status(404)
+          .json({ message: "Session not found or unauthorized" });
+      }
+
+      // ✅ Mark session as completed
       session.status = "completed";
       session.completedAt = new Date();
+
+      // ✅ Store voluntary + dialysis parameters
+      session.parameters = {
+        ...(session.parameters || {}),
+        voluntary: {
+          feelingOk: feelingOk ?? null,
+          fever: fever ?? null,
+          comment: comment ?? ""
+        },
+        dialysis: {
+          fillVolume: fillVolume ?? null,
+          drainVolume: drainVolume ?? null,
+          fillTime: fillTime ?? null,
+          drainTime: drainTime ?? null,
+          bloodPressure: bloodPressure ?? null,
+          weightPre: weightPre ?? null,
+          weightPost: weightPost ?? null,
+          numberOfExchanges: numberOfExchanges ?? null,
+          durationMinutes: durationMinutes ?? null
+        }
+      };
+
       await session.save();
 
       res.json({
         success: true,
         message: "Dialysis session marked as completed",
-        session,
+        session
       });
     } catch (err) {
       console.error("Error finishing dialysis session:", err);
@@ -158,6 +253,7 @@ router.patch(
     }
   }
 );
+
 
 /**
  * POST /doctor/patients
@@ -202,6 +298,56 @@ router.post("/doctor/patients", authMiddleware(["doctor"]), async (req, res) => 
     res.status(500).json({ message: "Server error" });
   }
 });
+
+
+/**
+ * PATCH /acknowledge-material-session
+ * Auth: patient
+ * body: { sessionId }
+ * → Patient acknowledges receipt of dialysis materials
+ */
+router.patch(
+  "/acknowledge-material-session",
+  authMiddleware(["patient"]),
+  async (req, res) => {
+    try {
+      const { sessionId } = req.body;
+
+      if (!sessionId) {
+        return res.status(400).json({ message: "sessionId is required" });
+      }
+
+      // Ensure this session belongs to the patient and is a MATERIAL session
+      const session = await Session.findOne({
+        _id: sessionId,
+        patientId: req.user.id,
+        type: "material",
+      });
+
+      if (!session) {
+        return res
+          .status(404)
+          .json({ message: "Material session not found or unauthorized" });
+      }
+
+      // Update status
+      session.status = "acknowledged";
+      session.acknowledgedAt = new Date();
+
+      await session.save();
+
+      res.json({
+        success: true,
+        message: "Material receipt acknowledged by patient",
+        session,
+      });
+    } catch (err) {
+      console.error("Error acknowledging material session:", err);
+      res.status(500).json({ message: "Error acknowledging material session" });
+    }
+  }
+);
+
 
 
 export default router;
