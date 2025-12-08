@@ -457,58 +457,84 @@ router.post(
   }
 );
 
+
 /**
  * POST /patient/material-summary
- * Auth: doctor
- * body: { patientId }
- * → For a given patient, return all material sessions and day-wise dialysis under each,
- *   including images uploaded by the patient for each dialysis session.
+ *
+ * Auth:
+ *  - doctor: must send { patientId } in body, and patient must belong to that doctor
+ *  - patient: no body needed, summary is shown for logged-in patient
  */
 router.post(
   "/patient/material-summary",
-  authMiddleware(["doctor"]),
+  authMiddleware(["doctor", "patient"]),
   async (req, res) => {
     try {
-      const { patientId } = req.body;
-      const doctorId = req.user.id;
+      let patientId;
+      let doctorId = null;
 
-      if (!patientId) {
-        return res.status(400).json({ message: "patientId is required" });
+      // 🔹 Decide which patient we’re querying for
+      if (req.user.role === "doctor") {
+        // doctor must send patientId
+        const { patientId: bodyPatientId } = req.body;
+        doctorId = req.user.id;
+        patientId = bodyPatientId;
+      } else {
+        // patient sees their own summary (id from token)
+        patientId = req.user.id;
       }
 
-      // 1) Verify patient belongs to this doctor
-      const patient = await User.findById(patientId).select("name email doctorId");
+      if (!patientId) {
+        return res.status(400).json({
+          message: "patientId is required for doctor requests",
+        });
+      }
+
+      // 1) Fetch patient
+      const patient = await User.findById(patientId).select(
+        "name email doctorId"
+      );
       if (!patient) {
         return res.status(404).json({ message: "Patient not found" });
       }
-      if (String(patient.doctorId) !== String(doctorId)) {
+
+      // 2) If doctor, ensure this patient belongs to them
+      if (
+        req.user.role === "doctor" &&
+        String(patient.doctorId) !== String(doctorId)
+      ) {
         return res.status(403).json({ message: "Unauthorized" });
       }
 
-      // 2) Get all material sessions for this doctor+patient
+      // 3) For queries, always use patient's doctorId (same for both roles)
+      if (!doctorId) {
+        doctorId = patient.doctorId;
+      }
+
+      // 4) Get all material sessions for this doctor+patient
       const materialSessions = await Session.find({
         doctorId,
         patientId,
-        type: "material"
+        type: "material",
       }).sort({ createdAt: 1 });
 
-      // ✅ collect material session IDs
-      const materialSessionIds = materialSessions.map(ms => ms._id);
+      // collect material session IDs
+      const materialSessionIds = materialSessions.map((ms) => ms._id);
 
-      // 3) Get all dialysis sessions linked to any material session
+      // 5) Get all dialysis sessions linked to any material session
       const dialysisSessions = await Session.find({
         doctorId,
         patientId,
         type: "dialysis",
-        materialSessionId: { $in: materialSessionIds }
+        materialSessionId: { $in: materialSessionIds },
       });
 
-
+      
       // Group dialysis sessions by materialSessionId
       const dialysisByMaterial = {};
       const dialysisSessionIds = [];
 
-      dialysisSessions.forEach(ds => {
+      dialysisSessions.forEach((ds) => {
         const key = String(ds.materialSessionId);
         if (!dialysisByMaterial[key]) dialysisByMaterial[key] = [];
         dialysisByMaterial[key].push(ds);
@@ -516,52 +542,51 @@ router.post(
         dialysisSessionIds.push(ds._id);
       });
 
-      // 4) Fetch images for all dialysis sessions (uploaded by patient)
+      // 6) Fetch images for all dialysis sessions (uploaded by patient)
       const images = await Image.find({
         sessionId: { $in: dialysisSessionIds },
-        uploadedBy: "patient"
+        uploadedBy: "patient",
       }).sort({ uploadedAt: 1 });
 
       // Group images by sessionId
       const imagesBySession = {};
-      images.forEach(img => {
+      images.forEach((img) => {
         const key = String(img.sessionId);
         if (!imagesBySession[key]) imagesBySession[key] = [];
         imagesBySession[key].push({
           id: img._id,
           imageUrl: img.imageUrl,
           uploadedAt: img.uploadedAt,
-          publicId: img.publicId
+          publicId: img.publicId,
         });
       });
 
-      // 5) Fetch images for material sessions (uploaded by doctor)
+      // 7) Fetch images for material sessions (uploaded by doctor)
       const materialImages = await Image.find({
         sessionId: { $in: materialSessionIds },
-        uploadedBy: "doctor"
+        uploadedBy: "doctor",
       }).sort({ uploadedAt: 1 });
 
       const materialImagesBySession = {};
-      materialImages.forEach(img => {
+      materialImages.forEach((img) => {
         const key = String(img.sessionId);
         if (!materialImagesBySession[key]) materialImagesBySession[key] = [];
         materialImagesBySession[key].push({
           id: img._id,
           imageUrl: img.imageUrl,
           uploadedAt: img.uploadedAt,
-          publicId: img.publicId
+          publicId: img.publicId,
         });
       });
 
-
-      // 6) Build response structure
-      const materialSummary = materialSessions.map(ms => {
+      // 8) Build response structure
+      const materialSummary = materialSessions.map((ms) => {
         const msId = String(ms._id);
         const totalDays = ms.materials?.sessionsCount || 0;
 
         const dialForThisMaterial = dialysisByMaterial[msId] || [];
         const byDay = {};
-        dialForThisMaterial.forEach(ds => {
+        dialForThisMaterial.forEach((ds) => {
           if (ds.dayNumber != null) {
             byDay[ds.dayNumber] = ds;
           }
@@ -575,18 +600,18 @@ router.post(
             const dsIdStr = String(ds._id);
             days.push({
               dayNumber: day,
-              status: ds.status,                 // "active", "completed", etc.
-              sessionId: ds._id,
+              status: ds.status, // "active", "completed", etc.
+              sessionId: ds._id, // dialysis session id
               completedAt: ds.completedAt || null,
               parameters: ds.parameters || {},
-              images: imagesBySession[dsIdStr] || []  // 👈 patient images for that day
+              images: imagesBySession[dsIdStr] || [], // patient images
             });
           } else {
             days.push({
               dayNumber: day,
               status: "pending",
               sessionId: null,
-              images: []                           // no session → no images
+              images: [],
             });
           }
         }
@@ -598,8 +623,8 @@ router.post(
           acknowledgedAt: ms.acknowledgedAt || null,
           materials: ms.materials,
           plannedSessions: totalDays,
-          materialImages: materialImagesBySession[msId] || [],
-          days
+          materialImages: materialImagesBySession[msId] || [], // doctor images
+          days,
         };
       });
 
@@ -608,9 +633,9 @@ router.post(
         patient: {
           id: patient._id,
           name: patient.name,
-          email: patient.email
+          email: patient.email,
         },
-        materialSessions: materialSummary
+        materialSessions: materialSummary,
       });
     } catch (err) {
       console.error("Error fetching patient material summary:", err);
@@ -618,6 +643,7 @@ router.post(
     }
   }
 );
+
 
 
 
