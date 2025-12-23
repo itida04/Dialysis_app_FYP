@@ -581,52 +581,67 @@ router.post(
 
       // 8) Build response structure
       const materialSummary = materialSessions.map((ms) => {
-        const msId = String(ms._id);
-        const totalDays = ms.materials?.sessionsCount || 0;
+      const msId = String(ms._id);
+      const totalDays = ms.materials?.sessionsCount || 0;
 
-        const dialForThisMaterial = dialysisByMaterial[msId] || [];
-        const byDay = {};
-        dialForThisMaterial.forEach((ds) => {
-          if (ds.dayNumber != null) {
-            byDay[ds.dayNumber] = ds;
-          }
-        });
+      const dialForThisMaterial = dialysisByMaterial[msId] || [];
 
-        const days = [];
-        for (let day = 1; day <= totalDays; day++) {
-          const ds = byDay[day];
+      // ✅ DERIVED VALUES (do NOT store in DB)
+      const completedDays = dialForThisMaterial.filter(
+        (ds) => ds.status === "completed" || ds.status === "verified"
+      ).length;
 
-          if (ds) {
-            const dsIdStr = String(ds._id);
-            days.push({
-              dayNumber: day,
-              status: ds.status, // "active", "completed", etc.
-              sessionId: ds._id, // dialysis session id
-              completedAt: ds.completedAt || null,
-              parameters: ds.parameters || {},
-              images: imagesBySession[dsIdStr] || [], // patient images
-            });
-          } else {
-            days.push({
-              dayNumber: day,
-              status: "pending",
-              sessionId: null,
-              images: [],
-            });
-          }
+      const remainingDays = Math.max(totalDays - completedDays, 0);
+
+      const byDay = {};
+      dialForThisMaterial.forEach((ds) => {
+        if (ds.dayNumber != null) {
+          byDay[ds.dayNumber] = ds;
         }
-
-        return {
-          materialSessionId: ms._id,
-          createdAt: ms.createdAt,
-          status: ms.status,
-          acknowledgedAt: ms.acknowledgedAt || null,
-          materials: ms.materials,
-          plannedSessions: totalDays,
-          materialImages: materialImagesBySession[msId] || [], // doctor images
-          days,
-        };
       });
+
+      const days = [];
+      for (let day = 1; day <= totalDays; day++) {
+        const ds = byDay[day];
+
+        if (ds) {
+          const dsIdStr = String(ds._id);
+          days.push({
+            dayNumber: day,
+            status: ds.status,
+            sessionId: ds._id,
+            completedAt: ds.completedAt || null,
+            parameters: ds.parameters || {},
+            images: imagesBySession[dsIdStr] || [],
+          });
+        } else {
+          days.push({
+            dayNumber: day,
+            status: "pending",
+            sessionId: null,
+            images: [],
+          });
+        }
+      }
+
+      return {
+        materialSessionId: ms._id,
+        createdAt: ms.createdAt,
+        status: ms.status,
+        acknowledgedAt: ms.acknowledgedAt || null,
+
+        // static info
+        materials: ms.materials,
+        plannedSessions: totalDays,
+
+        // ✅ derived progress info
+        completedDays,
+        remainingDays,
+
+        materialImages: materialImagesBySession[msId] || [],
+        days,
+      };
+    });
 
       res.json({
         success: true,
