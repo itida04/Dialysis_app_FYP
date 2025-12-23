@@ -644,6 +644,63 @@ router.post(
   }
 );
 
+/**
+ * PATCH /verify-dialysis-session
+ * Auth: doctor
+ * body: { sessionId, verificationNotes? }
+ * → Doctor verifies a completed dialysis session
+ */
+router.patch(
+  "/verify-dialysis-session",
+  authMiddleware(["doctor"]),
+  async (req, res) => {
+    try {
+      const { sessionId, verificationNotes } = req.body;
+      const doctorId = req.user.id;
+
+      if (!sessionId) {
+        return res.status(400).json({ message: "sessionId is required" });
+      }
+
+      // Find the dialysis session
+      const session = await Session.findOne({
+        _id: sessionId,
+        doctorId,
+        type: "dialysis",
+      });
+
+      if (!session) {
+        return res.status(404).json({
+          message: "Dialysis session not found or unauthorized",
+        });
+      }
+
+      // Ensure session is completed before verification
+      if (session.status !== "completed") {
+        return res.status(400).json({
+          message: "Only completed dialysis sessions can be verified",
+        });
+      }
+
+      // ✅ Mark as verified
+      session.status = "verified";
+      session.verifiedAt = new Date();
+      session.verifiedBy = doctorId;
+      session.verificationNotes = verificationNotes || "";
+
+      await session.save();
+
+      res.json({
+        success: true,
+        message: "Dialysis session verified successfully",
+        session,
+      });
+    } catch (err) {
+      console.error("Error verifying dialysis session:", err);
+      res.status(500).json({ message: "Error verifying dialysis session" });
+    }
+  }
+);
 
 
 

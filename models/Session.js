@@ -19,7 +19,7 @@ const sessionSchema = new mongoose.Schema({
   },
   status: {
     type: String,
-    enum: ["active", "acknowledged", "completed", "reviewed"],
+    enum: ["active", "acknowledged", "completed", "verified"],
     default: "active",
   },
   notes: {
@@ -110,6 +110,20 @@ const sessionSchema = new mongoose.Schema({
   // if later you want verification, you can uncomment these:
   // verifiedAt: { type: Date },
   // verifiedBy: { type: mongoose.Schema.Types.ObjectId, ref: "User" }
+
+  // 🔹 Doctor verification fields (ONLY for dialysis sessions)
+  verifiedAt: {
+    type: Date,
+  },
+  verifiedBy: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: "User", // doctor
+  },
+  verificationNotes: {
+    type: String,
+    default: "",
+  },
+
 });
 
 export default mongoose.model("Session", sessionSchema);
