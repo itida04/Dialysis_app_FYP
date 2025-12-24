@@ -724,7 +724,7 @@ router.patch(
  *  - doctor → body: { patientId, materialSessionId }
  *  - patient → body: { materialSessionId }
  *
- * → Returns one material session with materials info + remaining days
+ * → Returns one material session with materials info + remaining days + days + images
  */
 router.post(
   "/material/session-details",
@@ -791,6 +791,73 @@ router.post(
 
       const remainingDays = Math.max(totalDays - completedDays, 0);
 
+      // 🔽 NEW: collect dialysis session IDs
+      const dialysisSessionIds = dialysisSessions.map(ds => ds._id);
+
+      // 🔽 NEW: fetch patient images for dialysis sessions
+      const dialysisImages = await Image.find({
+        sessionId: { $in: dialysisSessionIds },
+        uploadedBy: "patient",
+      }).sort({ uploadedAt: 1 });
+
+      const imagesBySession = {};
+      dialysisImages.forEach(img => {
+        const key = String(img.sessionId);
+        if (!imagesBySession[key]) imagesBySession[key] = [];
+        imagesBySession[key].push({
+          id: img._id,
+          imageUrl: img.imageUrl,
+          uploadedAt: img.uploadedAt,
+          publicId: img.publicId,
+        });
+      });
+
+      // 🔽 NEW: fetch material images (doctor uploads)
+      const materialImages = await Image.find({
+        sessionId: materialSessionId,
+        uploadedBy: "doctor",
+      }).sort({ uploadedAt: 1 });
+
+      const formattedMaterialImages = materialImages.map(img => ({
+        id: img._id,
+        imageUrl: img.imageUrl,
+        uploadedAt: img.uploadedAt,
+        publicId: img.publicId,
+      }));
+
+      // 🔽 NEW: build day-wise map
+      const byDay = {};
+      dialysisSessions.forEach(ds => {
+        if (ds.dayNumber != null) {
+          byDay[ds.dayNumber] = ds;
+        }
+      });
+
+      const days = [];
+      for (let day = 1; day <= totalDays; day++) {
+        const ds = byDay[day];
+
+        if (ds) {
+          const dsIdStr = String(ds._id);
+          days.push({
+            dayNumber: day,
+            status: ds.status,
+            sessionId: ds._id,
+            completedAt: ds.completedAt || null,
+            parameters: ds.parameters || {},
+            images: imagesBySession[dsIdStr] || [],
+          });
+        } else {
+          days.push({
+            dayNumber: day,
+            status: "pending",
+            sessionId: null,
+            images: [],
+          });
+        }
+      }
+
+      // ✅ FINAL RESPONSE
       res.json({
         success: true,
         materialSession: {
@@ -802,6 +869,8 @@ router.post(
           plannedSessions: totalDays,
           completedDays,
           remainingDays,
+          materialImages: formattedMaterialImages,
+          days,
         },
       });
     } catch (err) {
@@ -810,6 +879,7 @@ router.post(
     }
   }
 );
+
 
 
 export default router;
