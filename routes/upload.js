@@ -88,7 +88,7 @@ router.post(
   async (req, res) => {
     try {
       const patientId = req.user.id;
-      const { materialSessionId } = req.body; // 🔹 NEW
+      const { materialSessionId } = req.body;
 
       const patient = await User.findById(patientId);
 
@@ -100,7 +100,7 @@ router.post(
       if (!doctorId)
         return res.status(400).json({ message: "No assigned doctor found" });
 
-      // 🔎 Verify material session belongs to this doctor+patient and is "material"
+      // 🔎 Verify material session
       const materialSession = await Session.findOne({
         _id: materialSessionId,
         patientId,
@@ -112,24 +112,43 @@ router.post(
         return res.status(400).json({ message: "Invalid materialSessionId" });
       }
 
-      // 🔢 Count existing dialysis sessions under this material session
-      const existingCount = await Session.countDocuments({
+      // 🔴 NEW 1️⃣: Block if an active dialysis session already exists
+      const activeSession = await Session.findOne({
         type: "dialysis",
         patientId,
         doctorId,
-        materialSessionId
+        materialSessionId,
+        status: "active"
       });
 
-      const plannedDays = materialSession.materials?.sessionsCount || 0;
-      const nextDayNumber = existingCount + 1;
-
-      // Optional safety: don’t allow more days than planned
-      if (plannedDays && nextDayNumber > plannedDays) {
+      if (activeSession) {
         return res.status(400).json({
-          message: `All planned dialysis sessions (${plannedDays}) are already recorded for this material pack`
+          message: "Please complete the current active dialysis session before starting a new one",
+          activeSessionId: activeSession._id,
+          dayNumber: activeSession.dayNumber
         });
       }
 
+      // 🔴 NEW 2️⃣: Count ONLY completed / verified sessions
+      const completedCount = await Session.countDocuments({
+        type: "dialysis",
+        patientId,
+        doctorId,
+        materialSessionId,
+        status: { $in: ["completed", "verified"] }
+      });
+
+      const plannedDays = materialSession.materials?.sessionsCount || 0;
+      const nextDayNumber = completedCount + 1;
+
+      // 🔒 Safety check (same logic, now correct)
+      if (plannedDays && nextDayNumber > plannedDays) {
+        return res.status(400).json({
+          message: `All planned dialysis sessions (${plannedDays}) are already completed for this material pack`
+        });
+      }
+
+      // ✅ Create new dialysis session
       const session = new Session({
         patientId,
         doctorId,
@@ -139,6 +158,8 @@ router.post(
         dayNumber: nextDayNumber
       });
 
+      await session.save
+
       await session.save();
       res.json({ success: true, session });
     } catch (err) {
@@ -147,6 +168,7 @@ router.post(
     }
   }
 );
+
 
 
 // ------------------- UPLOAD IMAGE -------------------
