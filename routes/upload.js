@@ -717,6 +717,99 @@ router.patch(
   }
 );
 
+/**
+ * POST /material/session-details
+ *
+ * Auth:
+ *  - doctor → body: { patientId, materialSessionId }
+ *  - patient → body: { materialSessionId }
+ *
+ * → Returns one material session with materials info + remaining days
+ */
+router.post(
+  "/material/session-details",
+  authMiddleware(["doctor", "patient"]),
+  async (req, res) => {
+    try {
+      let patientId;
+      let doctorId;
+      const { materialSessionId } = req.body;
+
+      if (!materialSessionId) {
+        return res.status(400).json({ message: "materialSessionId is required" });
+      }
+
+      // 🔹 Identify requester
+      if (req.user.role === "doctor") {
+        patientId = req.body.patientId;
+        doctorId = req.user.id;
+
+        if (!patientId) {
+          return res.status(400).json({
+            message: "patientId is required for doctor requests",
+          });
+        }
+      } else {
+        // patient
+        patientId = req.user.id;
+      }
+
+      // 1️⃣ Fetch material session
+      const materialSession = await Session.findOne({
+        _id: materialSessionId,
+        patientId,
+        type: "material",
+      });
+
+      if (!materialSession) {
+        return res.status(404).json({
+          message: "Material session not found or unauthorized",
+        });
+      }
+
+      // 2️⃣ Doctor ownership check
+      if (
+        req.user.role === "doctor" &&
+        String(materialSession.doctorId) !== String(doctorId)
+      ) {
+        return res.status(403).json({ message: "Unauthorized access" });
+      }
+
+      // 3️⃣ Fetch dialysis sessions under this material session
+      const dialysisSessions = await Session.find({
+        type: "dialysis",
+        patientId,
+        doctorId: materialSession.doctorId,
+        materialSessionId,
+      });
+
+      const totalDays = materialSession.materials?.sessionsCount || 0;
+
+      const completedDays = dialysisSessions.filter(
+        (ds) => ds.status === "completed" || ds.status === "verified"
+      ).length;
+
+      const remainingDays = Math.max(totalDays - completedDays, 0);
+
+      res.json({
+        success: true,
+        materialSession: {
+          materialSessionId: materialSession._id,
+          createdAt: materialSession.createdAt,
+          status: materialSession.status,
+          acknowledgedAt: materialSession.acknowledgedAt || null,
+          materials: materialSession.materials,
+          plannedSessions: totalDays,
+          completedDays,
+          remainingDays,
+        },
+      });
+    } catch (err) {
+      console.error("Error fetching material session details:", err);
+      res.status(500).json({ message: "Server error" });
+    }
+  }
+);
 
 
 export default router;
