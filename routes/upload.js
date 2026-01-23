@@ -840,6 +840,106 @@ router.patch(
       }
     );
 
+/**
+ * POST /doctor/dialysis-sessions-by-date
+ *
+ * Auth: doctor
+ * Body: { patientId, date }  // date = YYYY-MM-DD
+ *
+ * → Returns all dialysis sessions done by patient on that date
+ */
+  router.post(
+    "/doctor/dialysis-sessions-by-date",
+    authMiddleware(["doctor"]),
+    async (req, res) => {
+      try {
+        const doctorId = req.user.id;
+        const { patientId, date } = req.body;
+
+        if (!patientId || !date) {
+          return res.status(400).json({
+            message: "patientId and date are required (YYYY-MM-DD)",
+          });
+        }
+
+        // 1️⃣ Validate patient belongs to doctor
+        const patient = await User.findOne({
+          _id: patientId,
+          doctorId,
+          role: "patient",
+        });
+
+        if (!patient) {
+          return res.status(403).json({
+            message: "Unauthorized or patient not found under this doctor",
+          });
+        }
+
+        // 2️⃣ Build date range (start → end of day)
+        const startDate = new Date(`${date}T00:00:00.000Z`);
+        const endDate = new Date(`${date}T23:59:59.999Z`);
+
+        // 3️⃣ Fetch dialysis sessions for that date
+        const dialysisSessions = await Session.find({
+          type: "dialysis",
+          patientId,
+          doctorId,
+          status: { $in: ["completed", "verified"] },
+          completedAt: { $gte: startDate, $lte: endDate },
+        }).sort({ completedAt: 1 });
+
+        // 4️⃣ Fetch images for these sessions
+        const sessionIds = dialysisSessions.map(ds => ds._id);
+
+        const images = await Image.find({
+          sessionId: { $in: sessionIds },
+          uploadedBy: "patient",
+        }).sort({ uploadedAt: 1 });
+
+        // Group images by sessionId
+        const imagesBySession = {};
+        images.forEach(img => {
+          const key = String(img.sessionId);
+          if (!imagesBySession[key]) imagesBySession[key] = [];
+          imagesBySession[key].push({
+            id: img._id,
+            imageUrl: img.imageUrl,
+            uploadedAt: img.uploadedAt,
+            publicId: img.publicId,
+          });
+        });
+
+        // 5️⃣ Build response
+        const sessions = dialysisSessions.map(ds => ({
+          sessionId: ds._id,
+          materialSessionId: ds.materialSessionId,
+          status: ds.status,
+          startedAt: ds.createdAt,
+          completedAt: ds.completedAt,
+          parameters: ds.parameters || {},
+          images: imagesBySession[String(ds._id)] || [],
+        }));
+
+        res.json({
+          success: true,
+          doctorId,
+          patient: {
+            id: patient._id,
+            name: patient.name,
+            email: patient.email,
+          },
+          date,
+          totalSessions: sessions.length,
+          sessions,
+        });
+      } catch (err) {
+        console.error("Error fetching sessions by date:", err);
+        res.status(500).json({ message: "Server error" });
+      }
+    }
+  );
+
+
 
 
 
