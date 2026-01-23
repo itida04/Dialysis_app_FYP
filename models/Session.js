@@ -86,10 +86,10 @@ const sessionSchema = new mongoose.Schema({
   },
 
   // 🔹 NEW: which day (1..N) under that material session
-  dayNumber: {
-    type: Number,
-    default: null,  // only filled for type: "dialysis"
-  },
+  // dayNumber: {
+  //   type: Number,
+  //   default: null,  // only filled for type: "dialysis"
+  // },
 
   // existing createdAt
   createdAt: {

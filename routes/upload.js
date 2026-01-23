@@ -91,83 +91,82 @@ router.post(
       const { materialSessionId } = req.body;
 
       const patient = await User.findById(patientId);
-
-      if (!patient) return res.status(404).json({ message: "Patient not found" });
-      if (patient.role !== "patient")
-        return res.status(400).json({ message: "Logged-in user is not a patient" });
+      if (!patient || patient.role !== "patient") {
+        return res.status(400).json({ message: "Invalid patient" });
+      }
 
       const doctorId = patient.doctorId;
-      if (!doctorId)
+      if (!doctorId) {
         return res.status(400).json({ message: "No assigned doctor found" });
+      }
 
-      // 🔎 Verify material session
+      // 1️⃣ Validate material session
       const materialSession = await Session.findOne({
         _id: materialSessionId,
         patientId,
         doctorId,
-        type: "material"
+        type: "material",
       });
 
       if (!materialSession) {
         return res.status(400).json({ message: "Invalid materialSessionId" });
       }
 
-      // 🔴 NEW 1️⃣: Block if an active dialysis session already exists
+      // 2️⃣ Block parallel active dialysis session (IMPORTANT SAFETY)
       const activeSession = await Session.findOne({
         type: "dialysis",
         patientId,
         doctorId,
         materialSessionId,
-        status: "active"
+        status: "active",
       });
 
       if (activeSession) {
         return res.status(400).json({
-          message: "Please complete the current active dialysis session before starting a new one",
+          message:
+            "Please complete the current dialysis session before starting a new one",
           activeSessionId: activeSession._id,
-          dayNumber: activeSession.dayNumber
+
         });
       }
 
-      // 🔴 NEW 2️⃣: Count ONLY completed / verified sessions
-      const completedCount = await Session.countDocuments({
+      // 3️⃣ Count USED sessions (completed + verified)
+      const usedSessions = await Session.countDocuments({
         type: "dialysis",
         patientId,
         doctorId,
         materialSessionId,
-        status: { $in: ["completed", "verified"] }
+        status: { $in: ["completed", "verified"] },
       });
 
-      const plannedDays = materialSession.materials?.sessionsCount || 0;
-      const nextDayNumber = completedCount + 1;
+      const totalAllowed = materialSession.materials?.sessionsCount || 0;
 
-      // 🔒 Safety check (same logic, now correct)
-      if (plannedDays && nextDayNumber > plannedDays) {
+      if (usedSessions >= totalAllowed) {
         return res.status(400).json({
-          message: `All planned dialysis sessions (${plannedDays}) are already completed for this material pack`
+          message:
+            "All dialysis sessions for this material pack are exhausted. Please collect new material.",
         });
       }
 
-      // ✅ Create new dialysis session
+      // 4️⃣ Create dialysis session (NO dayNumber)
       const session = new Session({
         patientId,
         doctorId,
         type: "dialysis",
         status: "active",
         materialSessionId,
-        dayNumber: nextDayNumber
+
       });
-
-      await session.save
-
       await session.save();
+
       res.json({ success: true, session });
     } catch (err) {
-      console.error("Full error:", err);
-      res.status(500).json({ message: "Error creating dialysis session", error: err.message });
+      console.error("Error starting dialysis session:", err);
+      res.status(500).json({ message: "Server error" });
     }
   }
 );
+
 
 
 
@@ -604,47 +603,18 @@ router.post(
       // 8) Build response structure
       const materialSummary = materialSessions.map((ms) => {
       const msId = String(ms._id);
-      const totalDays = ms.materials?.sessionsCount || 0;
+      const totalSessions = ms.materials?.sessionsCount || 0;
 
       const dialForThisMaterial = dialysisByMaterial[msId] || [];
 
-      // ✅ DERIVED VALUES (do NOT store in DB)
-      const completedDays = dialForThisMaterial.filter(
+      const completedSessions = dialForThisMaterial.filter(
         (ds) => ds.status === "completed" || ds.status === "verified"
       ).length;
 
-      const remainingDays = Math.max(totalDays - completedDays, 0);
-
-      const byDay = {};
-      dialForThisMaterial.forEach((ds) => {
-        if (ds.dayNumber != null) {
-          byDay[ds.dayNumber] = ds;
-        }
-      });
-
-      const days = [];
-      for (let day = 1; day <= totalDays; day++) {
-        const ds = byDay[day];
-
-        if (ds) {
-          const dsIdStr = String(ds._id);
-          days.push({
-            dayNumber: day,
-            status: ds.status,
-            sessionId: ds._id,
-            completedAt: ds.completedAt || null,
-            parameters: ds.parameters || {},
-            images: imagesBySession[dsIdStr] || [],
-          });
-        } else {
-          days.push({
-            dayNumber: day,
-            status: "pending",
-            sessionId: null,
-            images: [],
-          });
-        }
-      }
+      const remainingSessions = Math.max(
+        totalSessions - completedSessions,
+        0
+      );
 
       return {
         materialSessionId: ms._id,
@@ -652,16 +622,21 @@ router.post(
         status: ms.status,
         acknowledgedAt: ms.acknowledgedAt || null,
 
-        // static info
         materials: ms.materials,
-        plannedSessions: totalDays,
 
-        // ✅ derived progress info
-        completedDays,
-        remainingDays,
+        totalSessionsAllowed: totalSessions,
+        completedSessions,
+        remainingSessions,
 
         materialImages: materialImagesBySession[msId] || [],
-        days,
+
+        dialysisSessions: dialForThisMaterial.map((ds) => ({
+          sessionId: ds._id,
+          status: ds.status,
+          completedAt: ds.completedAt || null,
+          parameters: ds.parameters || {},
+          images: imagesBySession[String(ds._id)] || [],
+        })),
       };
     });
 
@@ -745,162 +720,126 @@ router.patch(
  * Auth:
  *  - doctor → body: { patientId, materialSessionId }
  *  - patient → body: { materialSessionId }
- *
- * → Returns one material session with materials info + remaining days + days + images
  */
-router.post(
-  "/material/session-details",
-  authMiddleware(["doctor", "patient"]),
-  async (req, res) => {
-    try {
-      let patientId;
-      let doctorId;
-      const { materialSessionId } = req.body;
+    router.post(
+      "/material/session-details",
+      authMiddleware(["doctor", "patient"]),
+      async (req, res) => {
+        try {
+          let patientId;
+          let doctorId = null;
+          const { materialSessionId } = req.body;
 
-      if (!materialSessionId) {
-        return res.status(400).json({ message: "materialSessionId is required" });
-      }
+          if (!materialSessionId) {
+            return res.status(400).json({ message: "materialSessionId is required" });
+          }
 
-      // 🔹 Identify requester
-      if (req.user.role === "doctor") {
-        patientId = req.body.patientId;
-        doctorId = req.user.id;
+          if (req.user.role === "doctor") {
+            patientId = req.body.patientId;
+            doctorId = req.user.id;
+            if (!patientId) {
+              return res.status(400).json({ message: "patientId is required" });
+            }
+          } else {
+            patientId = req.user.id;
+          }
 
-        if (!patientId) {
-          return res.status(400).json({
-            message: "patientId is required for doctor requests",
+          const materialSession = await Session.findOne({
+            _id: materialSessionId,
+            patientId,
+            type: "material",
           });
-        }
-      } else {
-        // patient
-        patientId = req.user.id;
-      }
 
-      // 1️⃣ Fetch material session
-      const materialSession = await Session.findOne({
-        _id: materialSessionId,
-        patientId,
-        type: "material",
-      });
+          if (!materialSession) {
+            return res.status(404).json({ message: "Material session not found" });
+          }
 
-      if (!materialSession) {
-        return res.status(404).json({
-          message: "Material session not found or unauthorized",
-        });
-      }
+          if (
+            req.user.role === "doctor" &&
+            String(materialSession.doctorId) !== String(doctorId)
+          ) {
+            return res.status(403).json({ message: "Unauthorized" });
+          }
 
-      // 2️⃣ Doctor ownership check
-      if (
-        req.user.role === "doctor" &&
-        String(materialSession.doctorId) !== String(doctorId)
-      ) {
-        return res.status(403).json({ message: "Unauthorized access" });
-      }
-
-      // 3️⃣ Fetch dialysis sessions under this material session
-      const dialysisSessions = await Session.find({
-        type: "dialysis",
-        patientId,
-        doctorId: materialSession.doctorId,
-        materialSessionId,
-      });
-
-      const totalDays = materialSession.materials?.sessionsCount || 0;
-
-      const completedDays = dialysisSessions.filter(
-        (ds) => ds.status === "completed" || ds.status === "verified"
-      ).length;
-
-      const remainingDays = Math.max(totalDays - completedDays, 0);
-
-      // 🔽 NEW: collect dialysis session IDs
-      const dialysisSessionIds = dialysisSessions.map(ds => ds._id);
-
-      // 🔽 NEW: fetch patient images for dialysis sessions
-      const dialysisImages = await Image.find({
-        sessionId: { $in: dialysisSessionIds },
-        uploadedBy: "patient",
-      }).sort({ uploadedAt: 1 });
-
-      const imagesBySession = {};
-      dialysisImages.forEach(img => {
-        const key = String(img.sessionId);
-        if (!imagesBySession[key]) imagesBySession[key] = [];
-        imagesBySession[key].push({
-          id: img._id,
-          imageUrl: img.imageUrl,
-          uploadedAt: img.uploadedAt,
-          publicId: img.publicId,
-        });
-      });
-
-      // 🔽 NEW: fetch material images (doctor uploads)
-      const materialImages = await Image.find({
-        sessionId: materialSessionId,
-        uploadedBy: "doctor",
-      }).sort({ uploadedAt: 1 });
-
-      const formattedMaterialImages = materialImages.map(img => ({
-        id: img._id,
-        imageUrl: img.imageUrl,
-        uploadedAt: img.uploadedAt,
-        publicId: img.publicId,
-      }));
-
-      // 🔽 NEW: build day-wise map
-      const byDay = {};
-      dialysisSessions.forEach(ds => {
-        if (ds.dayNumber != null) {
-          byDay[ds.dayNumber] = ds;
-        }
-      });
-
-      const days = [];
-      for (let day = 1; day <= totalDays; day++) {
-        const ds = byDay[day];
-
-        if (ds) {
-          const dsIdStr = String(ds._id);
-          days.push({
-            dayNumber: day,
-            status: ds.status,
-            sessionId: ds._id,
-            completedAt: ds.completedAt || null,
-            parameters: ds.parameters || {},
-            images: imagesBySession[dsIdStr] || [],
+          const dialysisSessions = await Session.find({
+            type: "dialysis",
+            patientId,
+            doctorId: materialSession.doctorId,
+            materialSessionId,
           });
-        } else {
-          days.push({
-            dayNumber: day,
-            status: "pending",
-            sessionId: null,
-            images: [],
+
+          const totalSessions = materialSession.materials?.sessionsCount || 0;
+
+          const completedSessions = dialysisSessions.filter(
+            (ds) => ds.status === "completed" || ds.status === "verified"
+          ).length;
+
+          const remainingSessions = Math.max(
+            totalSessions - completedSessions,
+            0
+          );
+
+          const dialysisSessionIds = dialysisSessions.map(ds => ds._id);
+
+          const images = await Image.find({
+            sessionId: { $in: dialysisSessionIds },
+            uploadedBy: "patient",
           });
+
+          const imagesBySession = {};
+          images.forEach(img => {
+            const key = String(img.sessionId);
+            if (!imagesBySession[key]) imagesBySession[key] = [];
+            imagesBySession[key].push({
+              id: img._id,
+              imageUrl: img.imageUrl,
+              uploadedAt: img.uploadedAt,
+              publicId: img.publicId,
+            });
+          });
+
+          const materialImages = await Image.find({
+            sessionId: materialSessionId,
+            uploadedBy: "doctor",
+          });
+
+          res.json({
+            success: true,
+            materialSession: {
+              materialSessionId: materialSession._id,
+              createdAt: materialSession.createdAt,
+              status: materialSession.status,
+              acknowledgedAt: materialSession.acknowledgedAt || null,
+
+              materials: materialSession.materials,
+
+              totalSessionsAllowed: totalSessions,
+              completedSessions,
+              remainingSessions,
+
+              materialImages: materialImages.map(img => ({
+                id: img._id,
+                imageUrl: img.imageUrl,
+                uploadedAt: img.uploadedAt,
+                publicId: img.publicId,
+              })),
+
+              dialysisSessions: dialysisSessions.map(ds => ({
+                sessionId: ds._id,
+                status: ds.status,
+                completedAt: ds.completedAt || null,
+                parameters: ds.parameters || {},
+                images: imagesBySession[String(ds._id)] || [],
+              })),
+            },
+          });
+        } catch (err) {
+          console.error(err);
+          res.status(500).json({ message: "Server error" });
         }
       }
+    );
 
-      // ✅ FINAL RESPONSE
-      res.json({
-        success: true,
-        materialSession: {
-          materialSessionId: materialSession._id,
-          createdAt: materialSession.createdAt,
-          status: materialSession.status,
-          acknowledgedAt: materialSession.acknowledgedAt || null,
-          materials: materialSession.materials,
-          plannedSessions: totalDays,
-          completedDays,
-          remainingDays,
-          materialImages: formattedMaterialImages,
-          days,
-        },
-      });
-    } catch (err) {
-      console.error("Error fetching material session details:", err);
-      res.status(500).json({ message: "Server error" });
-    }
-  }
-);
 
 
 
