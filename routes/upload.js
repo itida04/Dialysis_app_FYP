@@ -112,25 +112,7 @@ router.post(
         return res.status(400).json({ message: "Invalid materialSessionId" });
       }
 
-      // 2️⃣ Block parallel active dialysis session (IMPORTANT SAFETY)
-      const activeSession = await Session.findOne({
-        type: "dialysis",
-        patientId,
-        doctorId,
-        materialSessionId,
-        status: "active",
-      });
-
-      if (activeSession) {
-        return res.status(400).json({
-          message:
-            "Please complete the current dialysis session before starting a new one",
-          activeSessionId: activeSession._id,
-
-        });
-      }
-
-      // 3️⃣ Count USED sessions (completed + verified)
+      // 2️⃣ Count USED sessions (completed + verified ONLY)
       const usedSessions = await Session.countDocuments({
         type: "dialysis",
         patientId,
@@ -148,7 +130,7 @@ router.post(
         });
       }
 
-      // 4️⃣ Create dialysis session (NO dayNumber)
+      // 3️⃣ Create dialysis session (no blocking, no day logic)
       const session = new Session({
         patientId,
         doctorId,
@@ -157,9 +139,14 @@ router.post(
         materialSessionId,
 
       });
+
       await session.save();
 
-      res.json({ success: true, session });
+      res.json({
+        success: true,
+        message: "Dialysis session started",
+        session,
+      });
     } catch (err) {
       console.error("Error starting dialysis session:", err);
       res.status(500).json({ message: "Server error" });
