@@ -34,49 +34,96 @@ const sessionSchema = new mongoose.Schema({
   },
 
   // 🔹 For material sessions (what items were issued)
+  // materials: {
+  //   sessionsCount: {
+  //     // "For how many sessions"
+  //     type: Number,
+  //     default: 0,
+  //   },
+  //   dialysisMachine: {
+  //     // "portable" / "standard" / "none"
+  //     type: String,
+  //     enum: ["portable", "standard", "none"],
+  //     default: "none",
+  //   },
+  //   dialyzer: {
+  //     // Dialyzer taken or not
+  //     type: Boolean,
+  //     default: false,
+  //   },
+  //   bloodTubingSets: {
+  //     // Blood tubing sets taken or not
+  //     type: Boolean,
+  //     default: false,
+  //   },
+  //   dialysisNeedles: {
+  //     // Dialysis needles taken or not
+  //     type: Boolean,
+  //     default: false,
+  //   },
+  //   dialysateConcentrates: {
+  //     // Acid & bicarbonate solutions
+  //     type: Boolean,
+  //     default: false,
+  //   },
+  //   heparin: {
+  //     // Heparin taken or not
+  //     type: Boolean,
+  //     default: false,
+  //   },
+  //   salineSolution: {
+  //     // 0.9% NaCl
+  //     type: Boolean,
+  //     default: false,
+  //   },
+  // },
+
   materials: {
+    // For how many dialysis sessions this supply is intended
     sessionsCount: {
-      // "For how many sessions"
+      
       type: Number,
       default: 0,
     },
-    dialysisMachine: {
-      // "portable" / "standard" / "none"
-      type: String,
-      enum: ["portable", "standard", "none"],
-      default: "none",
-    },
-    dialyzer: {
-      // Dialyzer taken or not
-      type: Boolean,
-      default: false,
-    },
-    bloodTubingSets: {
-      // Blood tubing sets taken or not
-      type: Boolean,
-      default: false,
-    },
-    dialysisNeedles: {
-      // Dialysis needles taken or not
-      type: Boolean,
-      default: false,
-    },
-    dialysateConcentrates: {
-      // Acid & bicarbonate solutions
-      type: Boolean,
-      default: false,
-    },
-    heparin: {
-      // Heparin taken or not
-      type: Boolean,
-      default: false,
-    },
-    salineSolution: {
-      // 0.9% NaCl
-      type: Boolean,
-      default: false,
+
+    // PD Consumables (Quantities)
+    pdMaterials: {
+      transferSet: {
+        type: Number, // Max 2
+        default: 0,
+      },
+
+      capd: {
+        fluid1_5_2L: { type: Number, default: 0 },
+        fluid2_5_2L: { type: Number, default: 0 },
+        fluid4_25_2L: { type: Number, default: 0 },
+
+        fluid1_5_1L: { type: Number, default: 0 },
+        fluid2_5_1L: { type: Number, default: 0 },
+        fluid4_25_1L: { type: Number, default: 0 },
+      },
+
+      apd: {
+        fluid1_7_1L: { type: Number, default: 0 },
+      },
+
+      icodextrin2L: {
+        type: Number,
+        default: 0,
+      },
+
+      minicap: {
+        type: Number,
+        default: 0,
+      },
+
+      others: {
+        description: String,
+        quantity: Number,
+      },
     },
   },
+
 
   // 🔹 NEW: link dialysis session → material session
   materialSessionId: {
