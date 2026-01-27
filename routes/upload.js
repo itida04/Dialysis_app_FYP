@@ -8,6 +8,9 @@ import Image from "../models/Image.js";
 import Session from "../models/Session.js";
 import { authMiddleware } from "../middleware/auth.js";
 import User from "../models/Users.js";
+import MedicalProfile from "../models/MedicalProfile.js";
+import BaselineAssessment from "../models/BaselineAssessment.js";
+import FollowUpAssessment from "../models/FollowUpAssessment.js";
 
 const router = express.Router();
 
@@ -267,7 +270,8 @@ router.patch(
 
       const session = await Session.findOne({
         _id: sessionId,
-        patientId: req.user.id
+        patientId: req.user.id,
+        type: "dialysis",
       });
 
       if (!session) {
@@ -928,6 +932,450 @@ router.patch(
 
 
 
+/**
+ * PATCH /doctor/medical-profile
+ * Auth: doctor
+ * Body: { patientId, ...medicalProfileFields }
+ */
+  router.patch(
+    "/doctor/medical-profile",
+    authMiddleware(["doctor"]),
+    async (req, res) => {
+      try {
+        const doctorId = req.user.id;
+        const { patientId, ...medicalData } = req.body;
+
+        if (!patientId) {
+          return res.status(400).json({ message: "patientId is required" });
+        }
+
+        // Ensure patient belongs to this doctor
+        const patient = await User.findOne({
+          _id: patientId,
+          doctorId,
+          role: "patient",
+        });
+
+        if (!patient) {
+          return res.status(403).json({ message: "Unauthorized" });
+        }
+
+        const profile = await MedicalProfile.findOneAndUpdate(
+          { patientId },
+          {
+            patientId,
+            doctorId,
+            ...medicalData,
+          },
+          {
+            new: true,
+            upsert: true, // creates if not exists
+          }
+        );
+
+        res.json({
+          success: true,
+          message: "Medical profile saved successfully",
+          profile,
+        });
+      } catch (err) {
+        console.error("Medical profile update error:", err);
+        res.status(500).json({ message: "Server error" });
+      }
+    }
+  );
+
+/**
+ * POST /medical-profile
+ * Auth: doctor | patient
+ * Doctor body: { patientId }
+ * Patient body: {}
+ */
+router.post(
+  "/medical-profile",
+  authMiddleware(["doctor", "patient"]),
+  async (req, res) => {
+    try {
+      let patientId;
+
+      if (req.user.role === "doctor") {
+        patientId = req.body.patientId;
+        if (!patientId) {
+          return res.status(400).json({ message: "patientId is required" });
+        }
+
+        const patient = await User.findOne({
+          _id: patientId,
+          doctorId: req.user.id,
+          role: "patient",
+        });
+
+        if (!patient) {
+          return res.status(403).json({ message: "Unauthorized" });
+        }
+      } else {
+        patientId = req.user.id;
+      }
+
+      const profile = await MedicalProfile.findOne({ patientId });
+
+      if (!profile) {
+        return res.json({
+          success: true,
+          profile: null,
+          message: "Medical profile not created yet",
+        });
+      }
+
+      res.json({ success: true, profile });
+    } catch (err) {
+      console.error("Fetch medical profile error:", err);
+      res.status(500).json({ message: "Server error" });
+    }
+  }
+);
+
+/**
+ * PATCH /doctor/baseline-assessment
+ * Auth: doctor
+ */
+  router.patch(
+    "/doctor/baseline-assessment",
+    authMiddleware(["doctor"]),
+    async (req, res) => {
+      try {
+        const doctorId = req.user.id;
+        const { patientId, ...data } = req.body;
+
+        if (!patientId) {
+          return res.status(400).json({ message: "patientId is required" });
+        }
+
+        const patient = await User.findOne({
+          _id: patientId,
+          doctorId,
+          role: "patient",
+        });
+
+        if (!patient) {
+          return res.status(403).json({ message: "Unauthorized" });
+        }
+
+        const assessment = await BaselineAssessment.findOneAndUpdate(
+          { patientId },
+          {
+            patientId,
+            doctorId,
+            ...data,
+            updatedAt: new Date(),
+          },
+          { upsert: true, new: true }
+        );
+
+        res.json({ success: true, assessment });
+      } catch (err) {
+        console.error(err);
+        res.status(500).json({ message: "Server error" });
+      }
+    }
+  );
+
+
+/**
+ * POST /baseline-assessment
+ * Auth: doctor | patient
+ */
+  router.post(
+    "/baseline-assessment",
+    authMiddleware(["doctor", "patient"]),
+    async (req, res) => {
+      let patientId;
+
+      if (req.user.role === "doctor") {
+      patientId = req.body.patientId;
+
+      const patient = await User.findOne({
+        _id: patientId,
+        doctorId: req.user.id,
+        role: "patient",
+      });
+
+      if (!patient) {
+        return res.status(403).json({ message: "Unauthorized" });
+      }
+      } else {
+        patientId = req.user.id;
+      }
+
+      const assessment = await BaselineAssessment.findOne({ patientId });
+      res.json({ success: true, assessment });
+    }
+  );
+
+  
+
+/**
+ * PATCH /doctor/followup-assessment
+ * Auth: doctor
+ */
+router.patch(
+  "/doctor/followup-assessment",
+  authMiddleware(["doctor"]),
+  async (req, res) => {
+    try {
+      const doctorId = req.user.id;
+      const { patientId, visitDate, ...data } = req.body;
+
+      if (!patientId) {
+        return res.status(400).json({ message: "patientId is required" });
+      }
+
+      const patient = await User.findOne({
+        _id: patientId,
+        doctorId,
+        role: "patient",
+      });
+
+      if (!patient) {
+        return res.status(403).json({ message: "Unauthorized" });
+      }
+
+      const assessment = await FollowUpAssessment.findOneAndUpdate(
+        { patientId, visitDate: visitDate || new Date() },
+        {
+          patientId,
+          doctorId,
+          visitDate: visitDate || new Date(),
+          ...data,
+        },
+        { upsert: true, new: true }
+      );
+
+      res.json({ success: true, assessment });
+    } catch (err) {
+      console.error(err);
+      res.status(500).json({ message: "Server error" });
+    }
+  }
+);
+
+/**
+ * POST /followup-assessments
+ * Auth: doctor | patient
+ */
+  router.post(
+    "/followup-assessments",
+    authMiddleware(["doctor", "patient"]),
+    async (req, res) => {
+      let patientId;
+
+      if (req.user.role === "doctor") {
+        patientId = req.body.patientId;
+        if (!patientId) {
+          return res.status(400).json({ message: "patientId required" });
+        }
+      } else {
+        patientId = req.user.id;
+      }
+
+      const assessments = await FollowUpAssessment.find({ patientId })
+        .sort({ visitDate: -1 });
+
+      res.json({
+        success: true,
+        count: assessments.length,
+        assessments,
+      });
+    }
+  );
+
+  import Event from "../models/Event.js";
+
+/**
+ * POST /events
+ * Auth: doctor | patient
+ * CREATE EVENT (Doctor / Patient)
+ */
+router.post(
+  "/events",
+  authMiddleware(["doctor", "patient"]),
+  async (req, res) => {
+    try {
+      const {
+        patientId,
+        eventType,
+        description,
+        severity,
+        eventDate,
+        relatedSessionId,
+      } = req.body;
+
+      const creatorRole = req.user.role;
+
+      let finalPatientId = patientId;
+
+      if (creatorRole === "patient") {
+        finalPatientId = req.user.id;
+      }
+
+      if (!finalPatientId || !eventType || !eventDate) {
+        return res.status(400).json({
+          message: "patientId, eventType, and eventDate are required",
+        });
+      }
+
+      const patient = await User.findById(finalPatientId);
+      if (!patient) {
+        return res.status(404).json({ message: "Patient not found" });
+      }
+
+      const event = new Event({
+        patientId: finalPatientId,
+        doctorId: patient.doctorId,
+        eventType,
+        description,
+        severity,
+        eventDate,
+        relatedSessionId: relatedSessionId || null,
+        createdByRole: creatorRole,
+      });
+
+      await event.save();
+
+      res.json({ success: true, event });
+    } catch (err) {
+      console.error("Create event error:", err);
+      res.status(500).json({ message: "Server error" });
+    }
+  }
+);
+
+/**
+ * POST /events/list
+ * Auth: doctor | patient
+ * get Events List(DOCTOR/PATIENT)
+ */
+router.post(
+  "/events/list",
+  authMiddleware(["doctor", "patient"]),
+  async (req, res) => {
+    try {
+      let patientId;
+
+      if (req.user.role === "doctor") {
+        patientId = req.body.patientId;
+        if (!patientId) {
+          return res.status(400).json({ message: "patientId is required" });
+        }
+      } else {
+        patientId = req.user.id;
+      }
+
+      const events = await Event.find({ patientId }).sort({ eventDate: -1 });
+
+      res.json({
+        success: true,
+        count: events.length,
+        events,
+      });
+    } catch (err) {
+      console.error(err);
+      res.status(500).json({ message: "Server error" });
+    }
+  }
+);
+
+/**
+ * PATCH /events/resolve
+ * Auth: doctor
+ * RESOLVE EVENT (ONLY DOC)
+ */
+router.patch(
+  "/events/resolve",
+  authMiddleware(["doctor"]),
+  async (req, res) => {
+    try {
+      const { eventId, resolutionNotes } = req.body;
+
+      if (!eventId) {
+        return res.status(400).json({ message: "eventId is required" });
+      }
+
+      const event = await Event.findById(eventId);
+      if (!event) {
+        return res.status(404).json({ message: "Event not found" });
+      }
+
+      event.resolved = true;
+      event.resolutionNotes = resolutionNotes || "";
+      await event.save();
+
+      res.json({ success: true, event });
+    } catch (err) {
+      console.error(err);
+      res.status(500).json({ message: "Server error" });
+    }
+  }
+);
+
+
+/**
+ * POST /analytics/patient-summary
+ * Auth: doctor
+ */
+router.post(
+  "/analytics/patient-summary",
+  authMiddleware(["doctor"]),
+  async (req, res) => {
+    try {
+      const { patientId } = req.body;
+      const doctorId = req.user.id;
+
+      if (!patientId) {
+        return res.status(400).json({ message: "patientId required" });
+      }
+
+      const patient = await User.findOne({
+        _id: patientId,
+        doctorId,
+        role: "patient",
+      });
+
+      if (!patient) {
+        return res.status(403).json({ message: "Unauthorized" });
+      }
+
+      const totalDialysisSessions = await Session.countDocuments({
+        patientId,
+        type: "dialysis",
+        status: { $in: ["completed", "verified"] },
+      });
+
+      const totalEvents = await Event.countDocuments({ patientId });
+
+      const peritonitisCount = await Event.countDocuments({
+        patientId,
+        eventType: "peritonitis",
+      });
+
+      res.json({
+        success: true,
+        patient: {
+          id: patient._id,
+          name: patient.name,
+        },
+        analytics: {
+          totalDialysisSessions,
+          totalEvents,
+          peritonitisCount,
+        },
+      });
+    } catch (err) {
+      console.error(err);
+      res.status(500).json({ message: "Server error" });
+    }
+  }
+);
 
 
 export default router;
