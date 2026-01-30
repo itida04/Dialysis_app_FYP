@@ -28,60 +28,69 @@ const sessionSchema = new mongoose.Schema({
   },
 
   // 🔹 For dialysis sessions (BP, weight, etc.)
+  // parameters: {
+  //   type: Object,
+  //   default: {},
+  // },
+
   parameters: {
-    type: Object,
-    default: {},
+    voluntary: {
+      wellbeing: { type: Number, min: 1, max: 10 },
+
+      appetite: { type: Boolean },
+      nausea: { type: Boolean },
+      vomiting: { type: Boolean },
+      abdominalDiscomfort: { type: Boolean },
+      constipation: { type: Boolean },
+      diarrhea: { type: Boolean },
+
+      sleepQuality: { type: Number, min: 1, max: 10 },
+      fatigue: { type: Boolean },
+      ableToDoActivities: { type: Boolean },
+
+      breathlessness: { type: Boolean },
+      footSwelling: { type: Boolean },
+      facialPuffiness: { type: Boolean },
+      rapidWeightGain: { type: Boolean },
+
+      bpMeasured: { type: Boolean },
+      sbp: { type: Number },
+      dbp: { type: Number },
+
+      weightMeasured: { type: Boolean },
+      weightKg: { type: Number },
+
+      painDuringFillDrain: { type: Boolean },
+      slowDrain: { type: Boolean },
+      catheterLeak: { type: Boolean },
+      exitSiteIssue: { type: Boolean },
+      effluentClarity: {
+        type: String,
+        enum: ["clear", "cloudy", "bloody", "unknown"],
+      },
+
+      urinePassed: { type: Boolean },
+      urineAmount: {
+        type: String,
+        enum: ["none", "less", "normal", "increased"],
+      },
+      fluidOverloadFeeling: { type: Boolean },
+
+      fever: { type: Boolean },
+      chills: { type: Boolean },
+      newAbdominalPain: { type: Boolean },
+      suddenUnwell: { type: Boolean },
+
+      comments: { type: String, default: "" },
+    },
   },
 
-  // 🔹 For material sessions (what items were issued)
-  // materials: {
-  //   sessionsCount: {
-  //     // "For how many sessions"
-  //     type: Number,
-  //     default: 0,
-  //   },
-  //   dialysisMachine: {
-  //     // "portable" / "standard" / "none"
-  //     type: String,
-  //     enum: ["portable", "standard", "none"],
-  //     default: "none",
-  //   },
-  //   dialyzer: {
-  //     // Dialyzer taken or not
-  //     type: Boolean,
-  //     default: false,
-  //   },
-  //   bloodTubingSets: {
-  //     // Blood tubing sets taken or not
-  //     type: Boolean,
-  //     default: false,
-  //   },
-  //   dialysisNeedles: {
-  //     // Dialysis needles taken or not
-  //     type: Boolean,
-  //     default: false,
-  //   },
-  //   dialysateConcentrates: {
-  //     // Acid & bicarbonate solutions
-  //     type: Boolean,
-  //     default: false,
-  //   },
-  //   heparin: {
-  //     // Heparin taken or not
-  //     type: Boolean,
-  //     default: false,
-  //   },
-  //   salineSolution: {
-  //     // 0.9% NaCl
-  //     type: Boolean,
-  //     default: false,
-  //   },
-  // },
+
 
   materials: {
     // For how many dialysis sessions this supply is intended
     sessionsCount: {
-      
+
       type: Number,
       default: 0,
     },

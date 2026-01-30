@@ -22,67 +22,7 @@ const upload = multer({ storage });
 // ✅ 2. Cloudinary should already be configured in config/cloudinary.js
 // (Make sure you call cloudinary.config() there using process.env vars)
 
-// // ------------------- START MATERIAL SESSION -------------------
-// router.post(
-//   "/start-material-session",
-//   authMiddleware(["doctor"]),
-//   async (req, res) => {
-//     try {
-//       const doctorId = req.user.id;
-//       const { patientId } = req.body;
 
-//       if (!patientId) {
-//         return res.status(400).json({ message: "patientId is required" });
-//       }
-
-//       // Read optional materials info from body (validate / default)
-//       // expected body keys (all optional except patientId):
-//       // sessionsCount, dialysisMachine, dialyzer, bloodTubingSets, dialysisNeedles,
-//       // dialysateConcentrates, heparin, salineSolution
-
-//       const {
-//         sessionsCount = 0,
-//         dialysisMachine = "none", // "portable" | "standard" | "none"
-//         dialyzer = false,
-//         bloodTubingSets = false,
-//         dialysisNeedles = false,
-//         dialysateConcentrates = false,
-//         heparin = false,
-//         salineSolution = false,
-//         notes = ""
-//       } = req.body;
-
-//       // basic validation for dialysisMachine
-//       const validMachines = ["portable", "standard", "none"];
-//       const machine = validMachines.includes(dialysisMachine) ? dialysisMachine : "none";
-
-//       const session = new Session({
-//         patientId,
-//         doctorId,
-//         type: "material",
-//         status: "active",
-//         notes,
-//         materials: {
-//           sessionsCount: Number(sessionsCount) || 0,
-//           dialysisMachine: machine,
-//           dialyzer: Boolean(dialyzer),
-//           bloodTubingSets: Boolean(bloodTubingSets),
-//           dialysisNeedles: Boolean(dialysisNeedles),
-//           dialysateConcentrates: Boolean(dialysateConcentrates),
-//           heparin: Boolean(heparin),
-//           salineSolution: Boolean(salineSolution)
-//         }
-//       });
-
-//       await session.save();
-
-//       res.json({ success: true, session });
-//     } catch (err) {
-//       console.error("Error creating material session:", err);
-//       res.status(500).json({ message: "Error creating material session", error: err.message });
-//     }
-//   }
-// );
 
 // ------------------- START MATERIAL SESSION -------------------
   router.post(
@@ -286,86 +226,7 @@ router.get("/session/:id/images", authMiddleware(), async (req, res) => {
   }
 });
 
-// // ------------------- FINISH DIALYSIS SESSION -------------------
-// router.patch(
-//   "/finish-dialysis-session",
-//   authMiddleware(["patient"]),
-//   async (req, res) => {
-//     try {
-//       const {
-//         sessionId,
 
-//         // Voluntary questions
-//         feelingOk,
-//         fever,
-//         comment,
-
-//         // Dialysis parameters
-//         fillVolume,
-//         drainVolume,
-//         fillTime,
-//         drainTime,
-//         bloodPressure,
-//         weightPre,
-//         weightPost,
-//         numberOfExchanges,
-//         durationMinutes
-//       } = req.body;
-
-//       if (!sessionId) {
-//         return res.status(400).json({ message: "sessionId is required" });
-//       }
-
-//       const session = await Session.findOne({
-//         _id: sessionId,
-//         patientId: req.user.id,
-//         type: "dialysis",
-//       });
-
-//       if (!session) {
-//         return res
-//           .status(404)
-//           .json({ message: "Session not found or unauthorized" });
-//       }
-
-//       // ✅ Mark session as completed
-//       session.status = "completed";
-//       session.completedAt = new Date();
-
-//       // ✅ Store voluntary + dialysis parameters
-//       session.parameters = {
-//         ...(session.parameters || {}),
-//         voluntary: {
-//           feelingOk: feelingOk ?? null,
-//           fever: fever ?? null,
-//           comment: comment ?? ""
-//         },
-//         dialysis: {
-//           fillVolume: fillVolume ?? null,
-//           drainVolume: drainVolume ?? null,
-//           fillTime: fillTime ?? null,
-//           drainTime: drainTime ?? null,
-//           bloodPressure: bloodPressure ?? null,
-//           weightPre: weightPre ?? null,
-//           weightPost: weightPost ?? null,
-//           numberOfExchanges: numberOfExchanges ?? null,
-//           durationMinutes: durationMinutes ?? null
-//         }
-//       };
-
-//       await session.save();
-
-//       res.json({
-//         success: true,
-//         message: "Dialysis session marked as completed",
-//         session
-//       });
-//     } catch (err) {
-//       console.error("Error finishing dialysis session:", err);
-//       res.status(500).json({ message: "Error completing session" });
-//     }
-//   }
-// );
 
 // ------------------- FINISH DIALYSIS SESSION -------------------
   router.patch(
@@ -402,51 +263,51 @@ router.get("/session/:id/images", authMiddleware(), async (req, res) => {
 
 
         session.parameters = {
-          ...(session.parameters || {}),
-          voluntary: {
-            wellbeing: symptoms?.wellbeing ?? null,
+            voluntary: {
+              wellbeing: Number(symptoms?.wellbeing) || null,
 
-            appetite: symptoms?.appetite ?? null,
-            nausea: symptoms?.nausea ?? null,
-            vomiting: symptoms?.vomiting ?? null,
-            abdominalDiscomfort: symptoms?.abdominalDiscomfort ?? null,
-            constipation: symptoms?.constipation ?? null,
-            diarrhea: symptoms?.diarrhea ?? null,
+              appetite: Boolean(symptoms?.appetite),
+              nausea: Boolean(symptoms?.nausea),
+              vomiting: Boolean(symptoms?.vomiting),
+              abdominalDiscomfort: Boolean(symptoms?.abdominalDiscomfort),
+              constipation: Boolean(symptoms?.constipation),
+              diarrhea: Boolean(symptoms?.diarrhea),
 
-            sleepQuality: symptoms?.sleepQuality ?? null,
-            fatigue: symptoms?.fatigue ?? null,
-            ableToDoActivities: symptoms?.ableToDoActivities ?? null,
+              sleepQuality: Number(symptoms?.sleepQuality) || null,
+              fatigue: Boolean(symptoms?.fatigue),
+              ableToDoActivities: Boolean(symptoms?.ableToDoActivities),
 
-            breathlessness: symptoms?.breathlessness ?? null,
-            footSwelling: symptoms?.footSwelling ?? null,
-            facialPuffiness: symptoms?.facialPuffiness ?? null,
-            rapidWeightGain: symptoms?.rapidWeightGain ?? null,
+              breathlessness: Boolean(symptoms?.breathlessness),
+              footSwelling: Boolean(symptoms?.footSwelling),
+              facialPuffiness: Boolean(symptoms?.facialPuffiness),
+              rapidWeightGain: Boolean(symptoms?.rapidWeightGain),
 
-            bpMeasured: symptoms?.bpMeasured ?? null,
-            sbp: symptoms?.sbp ?? null,
-            dbp: symptoms?.dbp ?? null,
+              bpMeasured: Boolean(symptoms?.bpMeasured),
+              sbp: symptoms?.sbp != null ? Number(symptoms.sbp) : null,
+              dbp: symptoms?.dbp != null ? Number(symptoms.dbp) : null,
 
-            weightMeasured: symptoms?.weightMeasured ?? null,
-            weightKg: symptoms?.weightKg ?? null,
+              weightMeasured: Boolean(symptoms?.weightMeasured),
+              weightKg: symptoms?.weightKg != null ? Number(symptoms.weightKg) : null,
 
-            painDuringFillDrain: symptoms?.painDuringFillDrain ?? null,
-            slowDrain: symptoms?.slowDrain ?? null,
-            catheterLeak: symptoms?.catheterLeak ?? null,
-            exitSiteIssue: symptoms?.exitSiteIssue ?? null,
-            effluentClarity: symptoms?.effluentClarity ?? null,
+              painDuringFillDrain: Boolean(symptoms?.painDuringFillDrain),
+              slowDrain: Boolean(symptoms?.slowDrain),
+              catheterLeak: Boolean(symptoms?.catheterLeak),
+              exitSiteIssue: Boolean(symptoms?.exitSiteIssue),
+              effluentClarity: symptoms?.effluentClarity || null,
 
-            urinePassed: symptoms?.urinePassed ?? null,
-            urineAmount: symptoms?.urineAmount ?? null,
-            fluidOverloadFeeling: symptoms?.fluidOverloadFeeling ?? null,
+              urinePassed: Boolean(symptoms?.urinePassed),
+              urineAmount: symptoms?.urineAmount || null,
+              fluidOverloadFeeling: Boolean(symptoms?.fluidOverloadFeeling),
 
-            fever: symptoms?.fever ?? null,
-            chills: symptoms?.chills ?? null,
-            newAbdominalPain: symptoms?.newAbdominalPain ?? null,
-            suddenUnwell: symptoms?.suddenUnwell ?? null,
+              fever: Boolean(symptoms?.fever),
+              chills: Boolean(symptoms?.chills),
+              newAbdominalPain: Boolean(symptoms?.newAbdominalPain),
+              suddenUnwell: Boolean(symptoms?.suddenUnwell),
 
-            comments: symptoms?.comments ?? "",
-          },
-        };
+              comments: symptoms?.comments || "",
+            },
+          };
+
 
         await session.save();
 
